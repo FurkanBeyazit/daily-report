@@ -1,0 +1,27 @@
+# Gerçek yapılandırma (şifre içerir)
+config.json
+
+# PyInstaller çıktıları
+build/
+*.spec
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Log dosyaları
+*.log
+
+# Sanal ortam
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.suo
+*.user
+
+*.md

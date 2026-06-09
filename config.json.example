@@ -1,0 +1,11 @@
+{
+  "ainos_host": "192.168.1.100",
+  "ainos_port": 8090,
+  "smtp_host": "smtp.example.com",
+  "smtp_port": 465,
+  "smtp_user": "report@example.com",
+  "smtp_pass": "your_smtp_password",
+  "recipients": ["manager@example.com", "admin@example.com"],
+  "send_hour": 6,
+  "send_minute": 0
+}
