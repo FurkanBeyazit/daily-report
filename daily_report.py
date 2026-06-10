@@ -10,11 +10,12 @@ from datetime import date, timedelta
 from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from io import BytesIO
 from pathlib import Path
 
 import requests
 import schedule
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 import pystray
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
@@ -87,7 +88,7 @@ def build_precision_table(events: list) -> str:
     tt = sum(e["total"]    for e in events)
     rows += (
         f'<tr style="background:{H_TOTAL};font-weight:700;">'
-        + _td("합계", "left")
+        + _td("전체", "left")
         + _td(f"{tj:,}", "center", "color:#2563a8;")
         + _td(f"{to:,}", "center", "color:#c0392b;")
         + _td(f"{tt:,}", "center")
@@ -99,7 +100,7 @@ def build_precision_table(events: list) -> str:
         + _th("이벤트", "left")
         + _th("정탐")
         + _th("오탐")
-        + _th("합계")
+        + _th("전체")
         + "</tr>"
     )
     return (
@@ -176,34 +177,42 @@ def build_html(target: date, precision: dict, server: dict) -> str:
 <body style="margin:0;padding:0;background:#eef2f8;font-family:Malgun Gothic,sans-serif;">
 <div style="max-width:920px;margin:0 auto;padding:28px 16px;">
 
-  <div style="background:{H_NAVY};border-radius:10px 10px 0 0;padding:28px 32px;color:{H_WHITE};">
-    <div style="font-size:12px;letter-spacing:3px;opacity:0.7;margin-bottom:8px;">DANUSYS · AINOS PLATFORM</div>
-    <div style="font-size:26px;font-weight:700;margin-bottom:4px;">일일 보고서</div>
-    <div style="font-size:16px;opacity:0.85;">{date_str}</div>
+  <div style="background:{H_NAVY};border-radius:10px 10px 0 0;padding:20px 32px;color:{H_WHITE};">
+    <table style="width:100%;border-collapse:collapse;"><tr>
+      <td style="width:1px;vertical-align:middle;padding-right:24px;">
+        <img src="cid:company_logo" alt="DANUSYS" style="height:56px;display:block;">
+      </td>
+      <td style="vertical-align:middle;">
+        <div style="font-size:12px;letter-spacing:3px;opacity:0.7;margin-bottom:6px;">DANUSYS · AINOS PLATFORM</div>
+        <div style="font-size:26px;font-weight:700;margin-bottom:4px;">일일 보고서</div>
+        <div style="font-size:16px;opacity:0.85;">{date_str}</div>
+      </td>
+    </tr></table>
   </div>
 
   <table style="width:100%;background:{H_BLUE};border-collapse:collapse;">
     <tr>
       <td style="padding:13px 32px;color:{H_WHITE};font-size:14px;">
-        전체&nbsp;<strong>{summary.get("total", 0):,}건</strong>
+        전체 건수&nbsp;<strong>{summary.get("grand_total", 0):,}건</strong>
         &emsp;|&emsp;
-        정탐&nbsp;<strong style="color:#7ec8f7;">{summary.get("jeongdam", 0):,}건</strong>
+        행위&nbsp;<strong style="color:#7ec8f7;">{summary.get("bhvr_total", 0):,}건</strong>
         &emsp;|&emsp;
-        오탐&nbsp;<strong style="color:#ffaaaa;">{summary.get("odam", 0):,}건</strong>
-        &emsp;|&emsp;
-        정탐율&nbsp;<strong style="color:#7ec8f7;">{summary.get("precision", 0)}%</strong>
+        재난&nbsp;<strong style="color:#ffaaaa;">{summary.get("dst_total", 0):,}건</strong>
       </td>
     </tr>
   </table>
 
   {section("①", "이벤트별 정탐 / 오탐 현황", str(target), prec_table)}
-  {section("②", "서버별 이벤트 현황", "최근 14일 누적", server_table)}
-  {section("③", "최근 14일 이벤트 통계", "",
+  {section("②", "최근 14일 이벤트 통계", "",
            '<img src="cid:chart_histogram" style="width:100%;border-radius:6px;" alt="14일 통계">')}
+  {section("③", "서버별 이벤트 현황", "최근 14일 누적", server_table)}
 
-  <div style="background:{H_NAVY};border-radius:0 0 10px 10px;padding:14px 32px;
-              color:rgba(255,255,255,0.5);font-size:12px;text-align:center;">
-    이 메일은 DANUSYS AINOS 플랫폼에서 자동 발송되었습니다.
+  <div style="background:{H_NAVY};border-radius:0 0 10px 10px;padding:16px 32px;
+              color:rgba(255,255,255,0.5);font-size:12px;text-align:center;line-height:1.8;">
+    이 메일은 DANUSYS AINOS 플랫폼에서 자동 발송되었습니다.<br>
+    문의사항이 있으시면 <a href="mailto:bcg0424@danusys.com"
+      style="color:rgba(255,255,255,0.75);text-decoration:none;border-bottom:1px solid rgba(255,255,255,0.3);">
+      bcg0424@danusys.com</a> 으로 연락해 주시기 바랍니다.
   </div>
 
 </div>
@@ -212,7 +221,7 @@ def build_html(target: date, precision: dict, server: dict) -> str:
 
 # ── 메일 발송 ─────────────────────────────────────────────────────────────────
 
-def send_email(cfg: dict, subject: str, html: str, chart_bytes):
+def send_email(cfg: dict, subject: str, html: str, chart_bytes, logo_bytes=None):
     msg            = MIMEMultipart("related")
     msg["Subject"] = subject
     msg["From"]    = cfg["smtp_user"]
@@ -221,6 +230,12 @@ def send_email(cfg: dict, subject: str, html: str, chart_bytes):
     alt = MIMEMultipart("alternative")
     msg.attach(alt)
     alt.attach(MIMEText(html, "html", "utf-8"))
+
+    if logo_bytes:
+        img = MIMEImage(logo_bytes)
+        img.add_header("Content-ID", "<company_logo>")
+        img.add_header("Content-Disposition", "inline", filename="logo.png")
+        msg.attach(img)
 
     if chart_bytes:
         img = MIMEImage(chart_bytes)
@@ -263,10 +278,11 @@ def run_report(target: date = None):
     except Exception as e:
         log.error("차트 이미지 수신 실패: %s", e)
 
+    logo_bytes = make_logo_bytes()
     html = build_html(target, precision, server)
 
     try:
-        send_email(cfg, subject, html, chart_bytes)
+        send_email(cfg, subject, html, chart_bytes, logo_bytes)
         log.info("메일 발송 완료 → %s", cfg["recipients"])
     except Exception as e:
         log.error("메일 발송 실패: %s", e)
@@ -283,6 +299,22 @@ def make_icon_image():
     draw.text((10, 16), "AI", fill=H_WHITE)
     draw.text((8, 36), "NOS", fill="#7ec8f7")
     return img
+
+LOGO_BLUE = "#1760d0"
+
+def make_logo_bytes() -> bytes:
+    W, H    = 180, 60
+    PAD     = 12
+    img     = Image.new("RGB", (W, H), "#ffffff")
+    draw    = ImageDraw.Draw(img)
+    try:
+        font = ImageFont.truetype("C:/Windows/Fonts/arialbd.ttf", 28)
+    except Exception:
+        font = ImageFont.load_default()
+    draw.text((PAD, (H - 28) // 2), " DANUSYS", font=font, fill=LOGO_BLUE)
+    buf = BytesIO()
+    img.save(buf, "PNG")
+    return buf.getvalue()
 
 def on_send_now(icon, item):
     threading.Thread(target=run_report, daemon=True).start()
