@@ -116,7 +116,7 @@ def build_server_table(viewers: list, all_events: list) -> str:
         "<tr>"
         + _th("서버 이름", "left")
         + "".join(_th(e) for e in active_ev)
-        + _th("합계")
+        + _th("전체")
         + "</tr>"
     )
 
@@ -137,7 +137,7 @@ def build_server_table(viewers: list, all_events: list) -> str:
     total_cells = "".join(_td(f"{totals[e]:,}") for e in active_ev)
     rows += (
         f'<tr style="background:{H_TOTAL};font-weight:700;">'
-        + _td("합계", "left")
+        + _td("전체", "left")
         + total_cells
         + _td(f"{grand_tot:,}", "center", f"color:{H_BLUE};")
         + "</tr>"
@@ -177,17 +177,11 @@ def build_html(target: date, precision: dict, server: dict) -> str:
 <body style="margin:0;padding:0;background:#eef2f8;font-family:Malgun Gothic,sans-serif;">
 <div style="max-width:920px;margin:0 auto;padding:28px 16px;">
 
-  <div style="background:{H_NAVY};border-radius:10px 10px 0 0;padding:20px 32px;color:{H_WHITE};">
-    <table style="width:100%;border-collapse:collapse;"><tr>
-      <td style="width:1px;vertical-align:middle;padding-right:24px;">
-        <img src="cid:company_logo" alt="DANUSYS" style="height:56px;display:block;">
-      </td>
-      <td style="vertical-align:middle;">
-        <div style="font-size:12px;letter-spacing:3px;opacity:0.7;margin-bottom:6px;">DANUSYS · AINOS PLATFORM</div>
-        <div style="font-size:26px;font-weight:700;margin-bottom:4px;">일일 보고서</div>
-        <div style="font-size:16px;opacity:0.85;">{date_str}</div>
-      </td>
-    </tr></table>
+  <div style="background:{H_NAVY};border-radius:10px 10px 0 0;padding:24px 32px;color:{H_WHITE};text-align:center;">
+    <img src="cid:company_logo" alt="DANUSYS" style="height:42px;display:block;margin:0 auto 10px;">
+    <div style="font-size:11px;letter-spacing:2px;opacity:0.7;margin-bottom:8px;">DANUSYS · AINOS PLATFORM</div>
+    <div style="font-size:26px;font-weight:700;margin-bottom:4px;">일일 보고서</div>
+    <div style="font-size:15px;opacity:0.85;">{date_str}</div>
   </div>
 
   <table style="width:100%;background:{H_BLUE};border-collapse:collapse;">
@@ -205,7 +199,7 @@ def build_html(target: date, precision: dict, server: dict) -> str:
   {section("①", "이벤트별 정탐 / 오탐 현황", str(target), prec_table)}
   {section("②", "최근 14일 이벤트 통계", "",
            '<img src="cid:chart_histogram" style="width:100%;border-radius:6px;" alt="14일 통계">')}
-  {section("③", "서버별 이벤트 현황", "최근 14일 누적", server_table)}
+  {section("③", "서버별 이벤트 현황", str(target), server_table)}
 
   <div style="background:{H_NAVY};border-radius:0 0 10px 10px;padding:16px 32px;
               color:rgba(255,255,255,0.5);font-size:12px;text-align:center;line-height:1.8;">
@@ -265,7 +259,7 @@ def run_report(target: date = None):
         return
 
     try:
-        server = api_get(cfg, "/api/server/stats", {"ref_date": str(target)})
+        server = api_get(cfg, "/api/server/stats", {"ref_date": str(target), "single_day": "true"})
         log.info("서버 통계 수신 완료")
     except Exception as e:
         log.error("서버 통계 수신 실패: %s", e)
@@ -303,16 +297,25 @@ def make_icon_image():
 LOGO_BLUE = "#1760d0"
 
 def make_logo_bytes() -> bytes:
-    W, H    = 180, 60
-    PAD     = 12
-    img     = Image.new("RGB", (W, H), "#ffffff")
-    draw    = ImageDraw.Draw(img)
+    PAD = 8
     try:
-        font = ImageFont.truetype("C:/Windows/Fonts/arialbd.ttf", 28)
+        font = ImageFont.truetype("C:/Windows/Fonts/ariblk.ttf", 36)
     except Exception:
-        font = ImageFont.load_default()
-    draw.text((PAD, (H - 28) // 2), " DANUSYS", font=font, fill=LOGO_BLUE)
-    buf = BytesIO()
+        try:
+            font = ImageFont.truetype("C:/Windows/Fonts/arialbd.ttf", 36)
+        except Exception:
+            font = ImageFont.load_default()
+
+    # yazı boyutunu ölç → canvas'ı tam sığacak şekilde oluştur
+    tmp  = Image.new("RGB", (1, 1))
+    bbox = ImageDraw.Draw(tmp).textbbox((0, 0), "DANUSYS", font=font)
+    W    = (bbox[2] - bbox[0]) + PAD * 2
+    H    = (bbox[3] - bbox[1]) + PAD * 2
+
+    img  = Image.new("RGB", (W, H), "#ffffff")
+    draw = ImageDraw.Draw(img)
+    draw.text((PAD - bbox[0], PAD - bbox[1]), "DANUSYS", font=font, fill=LOGO_BLUE)
+    buf  = BytesIO()
     img.save(buf, "PNG")
     return buf.getvalue()
 
