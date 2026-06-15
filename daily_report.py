@@ -149,15 +149,71 @@ def build_server_table(viewers: list, all_events: list) -> str:
         f"<thead>{header}</thead><tbody>{rows}</tbody></table>"
     )
 
+def build_operator_table(operators: list) -> str:
+    # 그날 한 건이라도 처리한 운영자만 표기
+    ops = [o for o in operators if o.get("total", 0) > 0]
+
+    if not ops:
+        return ('<div style="padding:18px;text-align:center;color:#888;font-size:13px;'
+                'font-family:Malgun Gothic,sans-serif;">해당 일자에 처리 기록이 없습니다.</div>')
+
+    tt = sum(o["total"] for o in ops)  # 처리 비중 분모
+
+    rows = ""
+    for i, o in enumerate(ops):
+        bg     = H_EVEN if i % 2 == 0 else H_WHITE
+        bijung = round(o["total"] / tt * 100, 1) if tt > 0 else 0.0
+        rows += (
+            f'<tr style="background:{bg}">'
+            + _td(o["reg_id"], "left", "font-weight:600;")
+            + _td(f'{o["jeongdam"]:,}', "center", "color:#2563a8;font-weight:600;")
+            + _td(f'{o["odam"]:,}',     "center", "color:#c0392b;font-weight:600;")
+            + _td(f'{o["total"]:,}',    "center", "font-weight:600;")
+            + _td(f'{o["odam_rate"]}%', "center")
+            + _td(f'{bijung}%',         "center", "color:#555;")
+            + "</tr>"
+        )
+
+    tj   = sum(o["jeongdam"] for o in ops)
+    to   = sum(o["odam"]     for o in ops)
+    rate = round(to / tt * 100, 1) if tt > 0 else 0.0
+    rows += (
+        f'<tr style="background:{H_TOTAL};font-weight:700;">'
+        + _td("전체", "left")
+        + _td(f"{tj:,}", "center", "color:#2563a8;")
+        + _td(f"{to:,}", "center", "color:#c0392b;")
+        + _td(f"{tt:,}", "center")
+        + _td(f"{rate}%", "center")
+        + _td("100%", "center", "color:#555;")
+        + "</tr>"
+    )
+
+    header = (
+        "<tr>"
+        + _th("운영자", "left")
+        + _th("정탐")
+        + _th("오탐")
+        + _th("전체")
+        + _th("오탐률")
+        + _th("처리 비중")
+        + "</tr>"
+    )
+    return (
+        f'<table style="border-collapse:collapse;width:100%;font-size:14px;'
+        f'font-family:Malgun Gothic,sans-serif;">'
+        f"<thead>{header}</thead><tbody>{rows}</tbody></table>"
+    )
+
 KR_DAYS = ["월", "화", "수", "목", "금", "토", "일"]
 
-def build_html(target: date, precision: dict, server: dict) -> str:
+def build_html(target: date, precision: dict, server: dict, operator: dict) -> str:
     wd       = KR_DAYS[target.weekday()]
     date_str = f"{target.year}년 {target.month:02d}월 {target.day:02d}일 ({wd}요일)"
     summary  = precision.get("summary", {})
 
-    prec_table   = build_precision_table(precision.get("events", []))
-    server_table = build_server_table(server.get("viewers", []), server.get("events", []))
+    prec_table     = build_precision_table(precision.get("events", []))
+    operator_table = build_operator_table(operator.get("operators", []))
+    server_table   = build_server_table(server.get("viewers", []), server.get("events", []))
 
     def section(num, title, subtitle, content):
         return f"""
@@ -199,7 +255,8 @@ def build_html(target: date, precision: dict, server: dict) -> str:
   {section("①", "이벤트별 정탐 / 오탐 현황", str(target), prec_table)}
   {section("②", "최근 14일 이벤트 통계", "",
            '<img src="cid:chart_histogram" style="width:100%;border-radius:6px;" alt="14일 통계">')}
-  {section("③", "서버별 이벤트 현황", str(target), server_table)}
+  {section("③", "운영자별 처리 현황", str(target), operator_table)}
+  {section("④", "서버별 이벤트 현황", str(target), server_table)}
 
   <div style="background:{H_NAVY};border-radius:0 0 10px 10px;padding:16px 32px;
               color:rgba(255,255,255,0.5);font-size:12px;text-align:center;line-height:1.8;">
@@ -259,6 +316,13 @@ def run_report(target: date = None):
         return
 
     try:
+        operator = api_get(cfg, "/api/analysis/operator_summary", {"target_date": str(target)})
+        log.info("운영자 통계 수신 완료")
+    except Exception as e:
+        log.error("운영자 통계 수신 실패: %s", e)
+        operator = {"operators": []}
+
+    try:
         server = api_get(cfg, "/api/server/stats", {"ref_date": str(target), "single_day": "true"})
         log.info("서버 통계 수신 완료")
     except Exception as e:
@@ -273,7 +337,7 @@ def run_report(target: date = None):
         log.error("차트 이미지 수신 실패: %s", e)
 
     logo_bytes = make_logo_bytes()
-    html = build_html(target, precision, server)
+    html = build_html(target, precision, server, operator)
 
     try:
         send_email(cfg, subject, html, chart_bytes, logo_bytes)
