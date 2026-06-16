@@ -70,7 +70,15 @@ def _th(val, align="center", extra=""):
     return (f'<th style="padding:10px 12px;border:1px solid {H_BORDER};text-align:{align};'
             f'color:{H_WHITE};background:{H_BLUE};{extra}">{val}</th>')
 
+# 메일 보고서에서 숨길 이벤트 (요청: 표에서 제외)
+HIDDEN_EVENTS = {"실종", "연기", "열감지"}
+
+def _ev_total(ev: dict) -> int:
+    """전체 = 원본 event 테이블 기준 건수 (정탐+오탐 아님). 구버전 API 호환 위해 fallback."""
+    return int(ev.get("event_total", ev.get("total", 0)) or 0)
+
 def build_precision_table(events: list) -> str:
+    events = [e for e in events if e["event"] not in HIDDEN_EVENTS]
     rows = ""
     for i, ev in enumerate(events):
         bg   = H_EVEN if i % 2 == 0 else H_WHITE
@@ -79,13 +87,13 @@ def build_precision_table(events: list) -> str:
             + _td(ev["event"], "left", "font-weight:600;")
             + _td(f'{ev["jeongdam"]:,}', "center", "color:#2563a8;font-weight:600;")
             + _td(f'{ev["odam"]:,}',     "center", "color:#c0392b;font-weight:600;")
-            + _td(f'{ev["total"]:,}',    "center", "font-weight:600;")
+            + _td(f'{_ev_total(ev):,}',  "center", "font-weight:600;")
             + "</tr>"
         )
 
     tj = sum(e["jeongdam"] for e in events)
     to = sum(e["odam"]     for e in events)
-    tt = sum(e["total"]    for e in events)
+    tt = sum(_ev_total(e)  for e in events)
     rows += (
         f'<tr style="background:{H_TOTAL};font-weight:700;">'
         + _td("전체", "left")
@@ -163,9 +171,10 @@ def build_operator_table(operators: list) -> str:
     for i, o in enumerate(ops):
         bg     = H_EVEN if i % 2 == 0 else H_WHITE
         bijung = round(o["total"] / tt * 100, 1) if tt > 0 else 0.0
+        label  = f'{o["reg_id"]}({o["name"]})' if o.get("name") else o["reg_id"]
         rows += (
             f'<tr style="background:{bg}">'
-            + _td(o["reg_id"], "left", "font-weight:600;")
+            + _td(label, "left", "font-weight:600;")
             + _td(f'{o["jeongdam"]:,}', "center", "color:#2563a8;font-weight:600;")
             + _td(f'{o["odam"]:,}',     "center", "color:#c0392b;font-weight:600;")
             + _td(f'{o["total"]:,}',    "center", "font-weight:600;")
@@ -209,7 +218,12 @@ KR_DAYS = ["월", "화", "수", "목", "금", "토", "일"]
 def build_html(target: date, precision: dict, server: dict, operator: dict) -> str:
     wd       = KR_DAYS[target.weekday()]
     date_str = f"{target.year}년 {target.month:02d}월 {target.day:02d}일 ({wd}요일)"
-    summary  = precision.get("summary", {})
+
+    # 헤더 건수 — 원본 event 테이블 기준(전체), 숨긴 이벤트 제외. ① 표 전체 합계와 일치.
+    ev_list     = [e for e in precision.get("events", []) if e["event"] not in HIDDEN_EVENTS]
+    grand_total = sum(_ev_total(e) for e in ev_list)
+    dst_total   = sum(_ev_total(e) for e in ev_list if e.get("knd") == "CALAMITY")
+    bhvr_total  = grand_total - dst_total
 
     prec_table     = build_precision_table(precision.get("events", []))
     operator_table = build_operator_table(operator.get("operators", []))
@@ -243,11 +257,11 @@ def build_html(target: date, precision: dict, server: dict, operator: dict) -> s
   <table style="width:100%;background:{H_BLUE};border-collapse:collapse;">
     <tr>
       <td style="padding:13px 32px;color:{H_WHITE};font-size:14px;">
-        전체 건수&nbsp;<strong>{summary.get("grand_total", 0):,}건</strong>
+        전체 건수&nbsp;<strong>{grand_total:,}건</strong>
         &emsp;|&emsp;
-        행위&nbsp;<strong style="color:#7ec8f7;">{summary.get("bhvr_total", 0):,}건</strong>
+        행위&nbsp;<strong style="color:#7ec8f7;">{bhvr_total:,}건</strong>
         &emsp;|&emsp;
-        재난&nbsp;<strong style="color:#ffaaaa;">{summary.get("dst_total", 0):,}건</strong>
+        재난&nbsp;<strong style="color:#ffaaaa;">{dst_total:,}건</strong>
       </td>
     </tr>
   </table>
