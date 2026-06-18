@@ -267,10 +267,12 @@ def build_html(target: date, precision: dict, server: dict, operator: dict) -> s
   </table>
 
   {section("①", "이벤트별 정탐 / 오탐 현황", str(target), prec_table)}
-  {section("②", "최근 14일 이벤트 통계", "",
+  {section("②", "시간대별 이벤트 분포", str(target),
+           '<img src="cid:chart_timedist" style="width:100%;border-radius:6px;" alt="시간대 분포">')}
+  {section("③", "최근 14일 이벤트 통계", "",
            '<img src="cid:chart_histogram" style="width:100%;border-radius:6px;" alt="14일 통계">')}
-  {section("③", "운영자별 처리 현황", str(target), operator_table)}
-  {section("④", "서버별 이벤트 현황", str(target), server_table)}
+  {section("④", "운영자별 처리 현황", str(target), operator_table)}
+  {section("⑤", "서버별 이벤트 현황", str(target), server_table)}
 
   <div style="background:{H_NAVY};border-radius:0 0 10px 10px;padding:16px 32px;
               color:rgba(255,255,255,0.5);font-size:12px;text-align:center;line-height:1.8;">
@@ -286,7 +288,7 @@ def build_html(target: date, precision: dict, server: dict, operator: dict) -> s
 
 # ── 메일 발송 ─────────────────────────────────────────────────────────────────
 
-def send_email(cfg: dict, subject: str, html: str, chart_bytes, logo_bytes=None):
+def send_email(cfg: dict, subject: str, html: str, chart_bytes, logo_bytes=None, timedist_bytes=None):
     msg            = MIMEMultipart("related")
     msg["Subject"] = subject
     msg["From"]    = cfg["smtp_user"]
@@ -306,6 +308,12 @@ def send_email(cfg: dict, subject: str, html: str, chart_bytes, logo_bytes=None)
         img = MIMEImage(chart_bytes)
         img.add_header("Content-ID", "<chart_histogram>")
         img.add_header("Content-Disposition", "inline", filename="histogram.png")
+        msg.attach(img)
+
+    if timedist_bytes:
+        img = MIMEImage(timedist_bytes)
+        img.add_header("Content-ID", "<chart_timedist>")
+        img.add_header("Content-Disposition", "inline", filename="timedist.png")
         msg.attach(img)
 
     ctx = ssl.create_default_context()
@@ -350,11 +358,18 @@ def run_report(target: date = None):
     except Exception as e:
         log.error("차트 이미지 수신 실패: %s", e)
 
+    timedist_bytes = None
+    try:
+        timedist_bytes = api_get_bytes(cfg, f"/api/stats/hourly_heatmap/image?ref_date={target}")
+        log.info("시간대 차트 이미지 수신 완료 (%d bytes)", len(timedist_bytes))
+    except Exception as e:
+        log.error("시간대 차트 이미지 수신 실패: %s", e)
+
     logo_bytes = make_logo_bytes()
     html = build_html(target, precision, server, operator)
 
     try:
-        send_email(cfg, subject, html, chart_bytes, logo_bytes)
+        send_email(cfg, subject, html, chart_bytes, logo_bytes, timedist_bytes)
         log.info("메일 발송 완료 → %s", cfg["recipients"])
     except Exception as e:
         log.error("메일 발송 실패: %s", e)
